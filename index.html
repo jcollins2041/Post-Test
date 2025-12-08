@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Retro Tone-Invader – Post-test</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: black;
+    }
+
+    /* SHARED FULL-SCREEN LAYOUTS */
+    #auth, #intro, #leaderboard {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: black;
+      color: white;
+      font-family: sans-serif;
+      text-align: center;
+    }
+
+    #auth .card, #intro .card, #leaderboard .card {
+      background: #111;
+      border: 2px solid cyan;
+      padding: 2rem;
+      max-width: 720px;
+      width: 90%;
+    }
+
+    #auth h1, #intro h1, #leaderboard h1 {
+      color: cyan;
+      margin-bottom: 0.5em;
+    }
+
+    #auth input, #intro input {
+      display: block;
+      margin: 0.5em auto 1em;
+      padding: 0.6em;
+      width: 80%;
+      background: #222;
+      color: white;
+      border: 1px solid #555;
+      font-size: 1rem;
+      text-align: center;
+    }
+
+    #auth button, #intro button, #leaderboard button {
+      background: cyan;
+      border: none;
+      padding: 0.5em 1em;
+      color: black;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    #intro .buttons { display: flex; justify-content: space-between; }
+    #intro button:disabled { opacity: 0.3; cursor: default; }
+
+    /* Leaderboard table */
+    #lb-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-family: monospace;
+      color: #e8ffff;
+    }
+    #lb-table th, #lb-table td {
+      border-bottom: 1px solid #244e4e;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+    #lb-table th { color: #9ff; }
+    #lb-empty {
+      opacity: 0.75;
+      margin: 0.5rem 0 1rem;
+      font-style: italic;
+    }
+
+    /* Game canvas & overlays */
+    canvas {
+      display: none;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: white; /* white post-test screen */
+    }
+
+    #overlay, #transition, #pauseMenu, #roundMenu {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      color: white;
+      font-family: sans-serif;
+      font-size: 2em;
+      display: none;
+      text-align: center;
+    }
+
+    /* Pause & round menus */
+    #pauseMenu .card,
+    #roundMenu .card {
+      background: rgba(0,0,0,0.85);
+      border: 2px solid cyan;
+      padding: 1.25rem 1.5rem;
+      min-width: 300px;
+    }
+    #pauseMenu h2, #roundMenu h2 {
+      margin: 0 0 .75rem;
+      color: cyan;
+      font-size: 1.25rem;
+    }
+    #pauseMenu .row,
+    #roundMenu .row {
+      display: flex; gap: .75rem; justify-content: center; margin-top: .5rem;
+    }
+    #pauseMenu button,
+    #roundMenu button {
+      background: cyan; border: none; padding: .5rem 1rem; color: #000; cursor: pointer; font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <!-- 0) AUTH SCREEN -->
+  <div id="auth">
+    <div class="card">
+      <h1>Sign In</h1>
+      <p>Create a username & password to track your post-test accuracy and streaks on this device.</p>
+      <input id="auth-username" placeholder="USERNAME" maxlength="18" />
+      <input id="auth-password" placeholder="PASSWORD" type="password" maxlength="64" />
+      <div style="display:flex; gap:0.5rem; justify-content:center; margin-top:0.5rem;">
+        <button id="btn-signup">Sign Up</button>
+        <button id="btn-login">Log In</button>
+      </div>
+
+      <!-- Leaderboard button -->
+      <div style="margin-top:0.75rem;">
+        <button id="btn-leaderboard" style="background:#2fd3d3;color:black;">Leaderboard</button>
+      </div>
+
+      <p id="auth-msg" style="min-height:1.2em; margin-top:0.8rem; color:#9ff;"></p>
+      <p style="opacity:.7; font-size:.9em; margin-top:1rem;">
+        (Local only; not secure. For demo purposes—use a unique password.)
+      </p>
+    </div>
+  </div>
+
+  <!-- 1) LEADERBOARD SCREEN -->
+  <div id="leaderboard">
+    <div class="card">
+      <h1>Post-test Leaderboard</h1>
+      <div id="lb-empty" style="display:none;">No results yet. Be the first to complete the post-test!</div>
+      <table id="lb-table" style="display:none;">
+        <thead>
+          <tr>
+            <th style="width:4ch;">#</th>
+            <th>Username</th>
+            <th style="text-align:right;">Accuracy&nbsp;(%)</th>
+            <th style="text-align:right;">Best&nbsp;Streak</th>
+          </tr>
+        </thead>
+        <tbody id="lb-body"></tbody>
+      </table>
+      <div style="margin-top:0.5rem;">
+        <button id="btn-lb-back">Back to Login</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2) INTRO SCREEN -->
+  <div id="intro">
+    <div class="card">
+      <h1 id="intro-title"></h1>
+      <p id="intro-content"></p>
+      <div id="name-container" style="display: none;">
+        <input id="playerName" placeholder="ENTER NAME" maxlength="12" />
+      </div>
+      <div class="buttons">
+        <button id="prevBtn">Previous</button>
+        <button id="nextBtn">Next</button>
+        <button id="toggle-handedness" style="background:#2fd3d3; color:black;">
+          Mode: Left-Handed
+        </button>
+      </div>
+      <p style="margin-top:1em; font-size:0.9em" id="page-indicator"></p>
+    </div>
+  </div>
+
+  <!-- 3) GAME CANVAS & OVERLAYS -->
+  <canvas id="canvas"></canvas>
+  <div id="overlay">Game Over<br>Press R to Restart</div>
+  <div id="transition"></div>
+
+  <!-- 4) PAUSE MENU -->
+  <div id="pauseMenu">
+    <div class="card">
+      <h2>Paused</h2>
+      <div class="row">
+        <button id="btn-pause-resume">Resume</button>
+        <button id="btn-pause-back">Back to Login</button>
+      </div>
+      <p style="font-size:.8rem; opacity:.8; margin-top:.75rem;">(Press Esc to toggle)</p>
+    </div>
+  </div>
+
+  <!-- 4.5) BETWEEN-ROUND MENU (POST-TEST ROUNDS) -->
+  <div id="roundMenu">
+    <div class="card">
+      <h2 id="roundMenu-title">Round Complete</h2>
+      <p id="roundMenu-body" style="font-size:0.9rem; line-height:1.4; margin-top:0.5rem;"></p>
+      <div class="row" style="margin-top:1rem;">
+        <button id="btn-round-continue">Continue</button>
+        <button id="btn-round-exit">Back to Login</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUTH + INTRO SCRIPT (no consent) -->
+  <script>
+  // --- tiny hashing helper (uses SubtleCrypto when available) ---
+  async function hashPassword(pw) {
+    if (window.crypto && crypto.subtle) {
+      const enc = new TextEncoder().encode(pw);
+      const buf = await crypto.subtle.digest('SHA-256', enc);
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+    // fallback (not secure)
+    let h = 0; for (let i=0;i<pw.length;i++){ h = (h<<5)-h + pw.charCodeAt(i); h|=0; }
+    return 'x'+(h>>>0).toString(16);
+  }
+
+  const STORAGE_USERS_KEY = 'rt_users';
+  const STORAGE_CURR_KEY  = 'rt_currentUser';
+
+  function loadUsers(){
+    try { return JSON.parse(localStorage.getItem(STORAGE_USERS_KEY) || '{}'); }
+    catch { return {}; }
+  }
+  function saveUsers(u){ localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(u)); }
+  function setCurrentUser(u){ localStorage.setItem(STORAGE_CURR_KEY, JSON.stringify(u)); }
+  function show(el, on=true){ if (!el) return; el.style.display = on ? 'flex' : 'none'; }
+
+  let currentUser = null;
+
+  // Elements
+  const auth   = document.getElementById('auth');
+  const aUser  = document.getElementById('auth-username');
+  const aPass  = document.getElementById('auth-password');
+  const aMsg   = document.getElementById('auth-msg');
+  const btnSU  = document.getElementById('btn-signup');
+  const btnLI  = document.getElementById('btn-login');
+
+  // Leaderboard elements
+  const leaderboard = document.getElementById('leaderboard');
+  const btnLB       = document.getElementById('btn-leaderboard');
+  const btnLBBack   = document.getElementById('btn-lb-back');
+  const lbTable     = document.getElementById('lb-table');
+  const lbBody      = document.getElementById('lb-body');
+  const lbEmpty     = document.getElementById('lb-empty');
+
+  // Intro elements
+  const intro      = document.getElementById("intro");
+  const titleEl    = document.getElementById("intro-title");
+  const contentEl  = document.getElementById("intro-content");
+  const nameCont   = document.getElementById("name-container");
+  const nameInput  = document.getElementById("playerName");
+  const prevBtn    = document.getElementById("prevBtn");
+  const nextBtn    = document.getElementById("nextBtn");
+  const pageInd    = document.getElementById("page-indicator");
+  const canvas     = document.getElementById("canvas");
+  const toggleBtn  = document.getElementById("toggle-handedness");
+
+  // --- AUTH handlers (no consent gating) ---
+  async function doSignup() {
+    const username = (aUser.value || '').trim().toLowerCase();
+    const password = aPass.value || '';
+    if (!username || !password) { aMsg.textContent = 'Enter a username & password.'; return; }
+    const users = loadUsers();
+    if (users[username]) { aMsg.textContent = 'Username already exists. Try Login.'; return; }
+    const hash = await hashPassword(password);
+    users[username] = {
+      passwordHash: hash,
+      highScore: users[username]?.highScore || 0,   // keep training-game fields if used elsewhere
+      highStreak: users[username]?.highStreak || 0,
+      displayName: username.toUpperCase(),
+      postAccuracy: 0,
+      postBestStreak: 0
+    };
+    saveUsers(users);
+    const curr = { username, passwordHash: hash, displayName: users[username].displayName };
+    currentUser = curr;
+    setCurrentUser(curr);
+    aMsg.textContent = 'Signed up. Welcome!';
+    proceedToIntro();
+  }
+
+  async function doLogin() {
+    const username = (aUser.value || '').trim().toLowerCase();
+    const password = aPass.value || '';
+    if (!username || !password) { aMsg.textContent = 'Enter a username & password.'; return; }
+    const users = loadUsers();
+    const rec = users[username];
+    if (!rec) { aMsg.textContent = 'No such user. Try Sign Up.'; return; }
+    const hash = await hashPassword(password);
+    if (hash !== rec.passwordHash) { aMsg.textContent = 'Wrong password.'; return; }
+    const curr = { username, passwordHash: hash, displayName: rec.displayName || username.toUpperCase() };
+    currentUser = curr;
+    setCurrentUser(curr);
+    aMsg.textContent = 'Logged in!';
+    proceedToIntro();
+  }
+
+  function proceedToIntro() {
+    if (!currentUser) return;
+    playerName = currentUser.displayName || currentUser.username.toUpperCase();
+    nameInput.value = playerName;
+    show(auth, false);
+    show(leaderboard, false);
+    show(intro, true);
+    renderPage();
+  }
+
+  btnSU.addEventListener('click', ()=>{ doSignup(); });
+  btnLI.addEventListener('click', ()=>{ doLogin(); });
+
+  // Leaderboard interactions
+  btnLB.addEventListener('click', ()=>{
+    buildLeaderboard();
+    show(auth, false);
+    show(leaderboard, true);
+  });
+  btnLBBack.addEventListener('click', ()=>{
+    show(leaderboard, false);
+    show(auth, true);
+  });
+
+  function buildLeaderboard() {
+    const usersObj = loadUsers();
+    const entries = Object.entries(usersObj).map(([username, rec]) => ({
+      username,
+      displayName: (rec && rec.displayName) ? rec.displayName : username.toUpperCase(),
+      accuracy:    (rec && typeof rec.postAccuracy     === 'number') ? rec.postAccuracy     : 0,
+      bestStreak:  (rec && typeof rec.postBestStreak   === 'number') ? rec.postBestStreak   : 0
+    }));
+
+    // Sort by accuracy desc, then best streak desc, then name asc
+    entries.sort((a,b)=>
+      (b.accuracy - a.accuracy) ||
+      (b.bestStreak - a.bestStreak) ||
+      a.displayName.localeCompare(b.displayName)
+    );
+
+    lbBody.innerHTML = '';
+    if (entries.length === 0) {
+      lbTable.style.display = 'none';
+      lbEmpty.style.display = 'block';
+      return;
+    }
+
+    lbEmpty.style.display = 'none';
+    lbTable.style.display = 'table';
+    entries.slice(0, 20).forEach((e, idx)=>{
+      const tr = document.createElement('tr');
+
+      const rank  = document.createElement('td');
+      rank.textContent = (idx+1).toString().padStart(2,' ');
+
+      const name  = document.createElement('td');
+      name.textContent = e.displayName;
+
+      const accTd = document.createElement('td');
+      accTd.style.textAlign = 'right';
+      accTd.textContent = e.accuracy.toFixed(1) + '%';
+
+      const streakTd = document.createElement('td');
+      streakTd.style.textAlign = 'right';
+      streakTd.textContent = e.bestStreak.toString();
+
+      tr.appendChild(rank);
+      tr.appendChild(name);
+      tr.appendChild(accTd);
+      tr.appendChild(streakTd);
+      lbBody.appendChild(tr);
+    });
+  }
+
+  // Auto-show auth on load
+  show(auth, true);
+
+  // --- INTRO sequence (post-test text) ---
+  const storyPages = [
+    { title: "POST-TEST", content: "Thank you for agreeing to participate in the post-test!" },
+    { content: "The following test will be almost identical to the game you have just played." },
+    { content: "You will hear a sequence of tones, like the ones before the aliens, but there will be nothing on screen." },
+    { content: "Press the buttons you would normally press if you heard those tones." },
+    { content: "Trust your instincts, all of the controls are the same, press 'F' to fire." },
+    { content: "You will hear 4 blocks of 50 tone sequences each separated by a pause menu." },
+    { content: "Enter your name, soldier. And good luck!", isNameInput: true }
+  ];
+  let currentPage = 0;
+  let playerName  = "IBANEZ";
+  let isLeftHanded = true;
+
+  function updateHandednessLabel(btn) {
+    if (!btn) return;
+    btn.textContent = `Mode: ${isLeftHanded ? "Left-Handed" : "Right-Handed"}`;
+  }
+  if (toggleBtn) {
+    updateHandednessLabel(toggleBtn);
+    toggleBtn.addEventListener("click", () => {
+      isLeftHanded = !isLeftHanded;
+      updateHandednessLabel(toggleBtn);
+    });
+  }
+
+  function renderPage(){
+    const page = storyPages[currentPage];
+    titleEl.textContent   = page.title || "";
+    contentEl.textContent = page.content;
+    nameCont.style.display = page.isNameInput ? "block" : "none";
+    prevBtn.disabled      = currentPage === 0;
+    nextBtn.textContent   = currentPage < storyPages.length - 1 ? "Next" : "Begin Mission";
+    nextBtn.disabled      = page.isNameInput && !playerName.trim();
+    pageInd.textContent   = `${currentPage + 1} / ${storyPages.length}`;
+    updateHandednessLabel(toggleBtn);
+  }
+
+  prevBtn.addEventListener("click", ()=>{
+    if (currentPage > 0) { currentPage--; renderPage(); }
+  });
+
+  nextBtn.addEventListener("click", ()=>{
+    if (currentPage < storyPages.length - 1) {
+      currentPage++; renderPage();
+    } else {
+      const entered = nameInput.value.trim();
+      if (entered) playerName = entered.toUpperCase();
+      window.playerName = playerName;
+
+      intro.style.display  = "none";
+      canvas.style.display = "block";
+
+      if (typeof window.initGame === "function") {
+        window.initGame(playerName, isLeftHanded);
+      }
+    }
+  });
+
+  nameInput.addEventListener("input", e=>{
+    playerName = e.target.value.toUpperCase();
+    renderPage();
+  });
+  </script>
+
+  <!-- POST-TEST GAME CODE -->
+  <script src="src/game.js"></script>
+</body>
+</html>
