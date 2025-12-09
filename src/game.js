@@ -267,10 +267,28 @@ function startGame(playerImg, alienImg) {
     let freq = peak + randn_bm() * sigma;
     freq = Math.max(min, Math.min(max, freq));
     const midRange = (min + max) / 2;
-    const shifts = (freq > midRange) ? [-3, -2, -2, 0, 2] : [3, 2, 2, 0, -2];
+
+    let shifts;
+
+    if (qi === 0) {
+      // Quadrant 1: strong bias LOWER, allow up to -4 octaves
+      // More entries at -4 and -3 so those are more likely.
+      shifts = [-4, -4, -3, -3, -2, -2, -1, 0];
+    } else if (qi === 3) {
+      // Quadrant 4: strong bias HIGHER, allow up to +4 octaves
+      // More entries at +4 and +3 so those are more likely.
+      shifts = [0, 1, 2, 2, 3, 3, 4, 4];
+    } else {
+      // Quadrants 2 & 3: keep original behaviour
+      shifts = (freq > midRange)
+        ? [-3, -2, -2, 0, 2]
+        : [ 3,  2,  2, 0, -2];
+    }
+
     const octaveShift = shifts[Math.floor(Math.random() * shifts.length)];
     return freq * Math.pow(2, octaveShift);
   }
+
 
   // ── Tone timing controls ───────────────────────────────────────────
   const noteDur = 0.95;
@@ -797,28 +815,28 @@ function finishTrialAndMaybeContinue() {
     phaseShot = false;
     currentTrial = { resolved: false, hit: false };
 
-    // choose quarter with safety: cannot use same quarter > 3 times in a row
-    let candidate;
-    if (lastQuarter === null || sameQuarterCount < 3) {
-      // free choice
-      candidate = Math.floor(Math.random() * 4);
-    } else {
-      // lastQuarter has already been used 3 times in a row → force a different quarter
-      const choices = [0, 1, 2, 3].filter(q => q !== lastQuarter);
-      candidate = choices[Math.floor(Math.random() * choices.length)];
-    }
+  // choose quarter with safety: cannot use same quarter > 3 times in a row
+  let candidate;
+  if (lastQuarter === null || sameQuarterCount < 3) {
+    // free choice
+    candidate = Math.floor(Math.random() * 4);
+  } else {
+    // lastQuarter has already been used 3 times in a row → force a different quarter
+    const choices = [0, 1, 2, 3].filter(q => q !== lastQuarter);
+    candidate = choices[Math.floor(Math.random() * choices.length)];
+  }
 
-    expectedQuarter = candidate;
+  expectedQuarter = candidate;
 
-    // update run-length tracking
-    if (lastQuarter === expectedQuarter) {
-      sameQuarterCount++;
-    } else {
-      lastQuarter = expectedQuarter;
-      sameQuarterCount = 1;
-    }
+  // update run-length tracking
+  if (lastQuarter === expectedQuarter) {
+    sameQuarterCount++;
+  } else {
+    lastQuarter = expectedQuarter;
+    sameQuarterCount = 1;
+  }
 
-    const spawnCell = groupOffsets[expectedQuarter];
+  const spawnCell = groupOffsets[expectedQuarter];
 
     playStatic(2);
     prefireTimer = setTimeout(async ()=>{
