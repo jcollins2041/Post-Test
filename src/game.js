@@ -634,6 +634,10 @@ let bestStreak = window.bestStreak || 0;
 let roundCorrect = [0,0,0,0];
 let roundTotal   = [0,0,0,0];
 
+// quarter selection safety: prevent >3 identical in a row
+let lastQuarter = null;
+let sameQuarterCount = 0;
+
   const overlay=document.getElementById('overlay'),
         transition=document.getElementById('transition');
 
@@ -793,7 +797,27 @@ function finishTrialAndMaybeContinue() {
     phaseShot = false;
     currentTrial = { resolved: false, hit: false };
 
-    expectedQuarter = Math.floor(Math.random() * 4);
+    // choose quarter with safety: cannot use same quarter > 3 times in a row
+    let candidate;
+    if (lastQuarter === null || sameQuarterCount < 3) {
+      // free choice
+      candidate = Math.floor(Math.random() * 4);
+    } else {
+      // lastQuarter has already been used 3 times in a row → force a different quarter
+      const choices = [0, 1, 2, 3].filter(q => q !== lastQuarter);
+      candidate = choices[Math.floor(Math.random() * choices.length)];
+    }
+
+    expectedQuarter = candidate;
+
+    // update run-length tracking
+    if (lastQuarter === expectedQuarter) {
+      sameQuarterCount++;
+    } else {
+      lastQuarter = expectedQuarter;
+      sameQuarterCount = 1;
+    }
+
     const spawnCell = groupOffsets[expectedQuarter];
 
     playStatic(2);
