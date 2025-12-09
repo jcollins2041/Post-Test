@@ -170,6 +170,7 @@
       <div style="margin-top:0.5rem;">
         <button id="btn-lb-back">Back to Login</button>
       </div>
+      <div id="lb-rounds" style="margin-top:1rem;"></div>
     </div>
   </div>
 
@@ -263,6 +264,7 @@
   const lbTable     = document.getElementById('lb-table');
   const lbBody      = document.getElementById('lb-body');
   const lbEmpty     = document.getElementById('lb-empty');
+  const lbRounds    = document.getElementById('lb-rounds');
 
   // Intro elements
   const intro      = document.getElementById("intro");
@@ -340,55 +342,138 @@
     show(auth, true);
   });
 
-  function buildLeaderboard() {
-    const usersObj = loadUsers();
-    const entries = Object.entries(usersObj).map(([username, rec]) => ({
-      username,
-      displayName: (rec && rec.displayName) ? rec.displayName : username.toUpperCase(),
-      accuracy:    (rec && typeof rec.postAccuracy     === 'number') ? rec.postAccuracy     : 0,
-      bestStreak:  (rec && typeof rec.postBestStreak   === 'number') ? rec.postBestStreak   : 0
-    }));
+function buildLeaderboard() {
+  const usersObj = loadUsers();
 
-    // Sort by accuracy desc, then best streak desc, then name asc
-    entries.sort((a,b)=>
-      (b.accuracy - a.accuracy) ||
-      (b.bestStreak - a.bestStreak) ||
-      a.displayName.localeCompare(b.displayName)
-    );
+  // Map users to post-test stats
+  const entries = Object.entries(usersObj).map(([username, rec]) => {
+    const displayName = (rec && rec.displayName) ? rec.displayName : username.toUpperCase();
+    const accuracy    = (rec && typeof rec.postAccuracy === 'number') ? rec.postAccuracy : 0;
+    const bestStreak  = (rec && typeof rec.postBestStreak === 'number') ? rec.postBestStreak : 0;
+    const roundAccs   = (rec && Array.isArray(rec.postRoundAccuracies)) ? rec.postRoundAccuracies : [0,0,0,0];
+    return { username, displayName, accuracy, bestStreak, roundAccs };
+  });
 
-    lbBody.innerHTML = '';
-    if (entries.length === 0) {
-      lbTable.style.display = 'none';
-      lbEmpty.style.display = 'block';
-      return;
-    }
+  // Sort main leaderboard by overall accuracy
+  entries.sort((a,b)=> (b.accuracy - a.accuracy) || a.displayName.localeCompare(b.displayName));
 
-    lbEmpty.style.display = 'none';
-    lbTable.style.display = 'table';
-    entries.slice(0, 20).forEach((e, idx)=>{
+  lbBody.innerHTML = '';
+  if (lbRounds) lbRounds.innerHTML = '';
+
+  if (entries.length === 0) {
+    lbTable.style.display = 'none';
+    lbEmpty.style.display = 'block';
+    return;
+  }
+
+  lbEmpty.style.display = 'none';
+  lbTable.style.display = 'table';
+
+  // Main table: #, Username, Accuracy (%), Best Streak
+  entries.slice(0, 20).forEach((e, idx)=>{
+    const tr = document.createElement('tr');
+
+    const rank  = document.createElement('td');
+    rank.textContent = (idx+1).toString().padStart(2,' ');
+
+    const name  = document.createElement('td');
+    name.textContent = e.displayName;
+
+    const score = document.createElement('td');
+    score.style.textAlign = 'right';
+    score.textContent = e.accuracy.toFixed(1) + '%';
+
+    const streak = document.createElement('td');
+    streak.style.textAlign = 'right';
+    streak.textContent = e.bestStreak.toString();
+
+    tr.appendChild(rank);
+    tr.appendChild(name);
+    tr.appendChild(score);
+    tr.appendChild(streak);
+    lbBody.appendChild(tr);
+  });
+
+  // 4 per-round sections
+  if (!lbRounds) return;
+
+  const roundLabels = [
+    'Round 1 (Trials 1–50)',
+    'Round 2 (Trials 51–100)',
+    'Round 3 (Trials 101–150)',
+    'Round 4 (Trials 151–200)'
+  ];
+
+  for (let r = 0; r < 4; r++) {
+    const section = document.createElement('div');
+
+    const h = document.createElement('h3');
+    h.textContent = roundLabels[r];
+    h.style.margin = '0.75rem 0 0.25rem';
+    h.style.color = '#9ff';
+    section.appendChild(h);
+
+    const tbl = document.createElement('table');
+    tbl.style.width = '100%';
+    tbl.style.borderCollapse = 'collapse';
+    tbl.style.margin = '0.25rem 0';
+    tbl.style.fontFamily = 'monospace';
+    tbl.style.color = '#e8ffff';
+
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+
+    const thRank = document.createElement('th');
+    thRank.textContent = '#';
+    thRank.style.width = '4ch';
+
+    const thName = document.createElement('th');
+    thName.textContent = 'Username';
+
+    const thAcc = document.createElement('th');
+    thAcc.textContent = 'Accuracy (%)';
+    thAcc.style.textAlign = 'right';
+
+    trh.appendChild(thRank);
+    trh.appendChild(thName);
+    trh.appendChild(thAcc);
+    thead.appendChild(trh);
+    tbl.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+
+    // Sort by this round's accuracy
+    const sorted = entries.slice().sort((a,b) => {
+      const av = (a.roundAccs && typeof a.roundAccs[r] === 'number') ? a.roundAccs[r] : 0;
+      const bv = (b.roundAccs && typeof b.roundAccs[r] === 'number') ? b.roundAccs[r] : 0;
+      return (bv - av) || a.displayName.localeCompare(b.displayName);
+    });
+
+    sorted.forEach((e, idx2) => {
       const tr = document.createElement('tr');
 
-      const rank  = document.createElement('td');
-      rank.textContent = (idx+1).toString().padStart(2,' ');
+      const tdRank = document.createElement('td');
+      tdRank.textContent = (idx2 + 1).toString().padStart(2, ' ');
 
-      const name  = document.createElement('td');
-      name.textContent = e.displayName;
+      const tdName = document.createElement('td');
+      tdName.textContent = e.displayName;
 
-      const accTd = document.createElement('td');
-      accTd.style.textAlign = 'right';
-      accTd.textContent = e.accuracy.toFixed(1) + '%';
+      const tdAcc = document.createElement('td');
+      const accVal = (e.roundAccs && typeof e.roundAccs[r] === 'number') ? e.roundAccs[r] : 0;
+      tdAcc.textContent = accVal.toFixed(1) + '%';
+      tdAcc.style.textAlign = 'right';
 
-      const streakTd = document.createElement('td');
-      streakTd.style.textAlign = 'right';
-      streakTd.textContent = e.bestStreak.toString();
-
-      tr.appendChild(rank);
-      tr.appendChild(name);
-      tr.appendChild(accTd);
-      tr.appendChild(streakTd);
-      lbBody.appendChild(tr);
+      tr.appendChild(tdRank);
+      tr.appendChild(tdName);
+      tr.appendChild(tdAcc);
+      tbody.appendChild(tr);
     });
+
+    tbl.appendChild(tbody);
+    section.appendChild(tbl);
+    lbRounds.appendChild(section);
   }
+}
 
   // Auto-show auth on load
   show(auth, true);

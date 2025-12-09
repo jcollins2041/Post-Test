@@ -35,6 +35,17 @@ function rtGamePersistBestStreakIfPossible(newStreak) {
     rtGameSaveUsers(users);
   }
 }
+function rtGamePersistPostRoundAccuraciesIfPossible(roundAccs) {
+  const curr = rtGameGetCurrentUser();
+  if (!curr) return;
+  const users = rtGameLoadUsers();
+  const u = users[curr.username] || {};
+  if (Array.isArray(roundAccs) && roundAccs.length === 4) {
+    u.postRoundAccuracies = roundAccs;
+  }
+  users[curr.username] = u;
+  rtGameSaveUsers(users);
+}
 
 // New helpers for POST-TEST metrics
 //   postAccuracy   – best % accuracy on pre-fires for post-test
@@ -481,20 +492,42 @@ function startGame(playerImg, alienImg) {
     return totalTrials ? (correctPrefires / totalTrials) * 100 : 0;
   }
 
-  function exitToLogin() {
-    // Persist best accuracy and best streak for this post-test session
-    const acc = getAccuracyPercent();
-    if (acc > (window.bestAccuracy || 0)) {
-      window.bestAccuracy = acc;
-      rtGamePersistPostAccuracyIfPossible(window.bestAccuracy);
-    }
+  function getRoundAccuracyPercent(idx) {
+  if (!roundTotal || !roundTotal[idx]) return 0;
+  return (roundCorrect[idx] / roundTotal[idx]) * 100;
+}
 
-    if (bestStreak > (window.bestStreak || 0)) {
-      window.bestStreak = bestStreak;
-      rtGamePersistPostBestStreakIfPossible(window.bestStreak);
+function getAllRoundAccuraciesPercent() {
+  const arr = [];
+  for (let i = 0; i < 4; i++) {
+    if (roundTotal && roundTotal[i]) {
+      arr.push((roundCorrect[i] / roundTotal[i]) * 100);
+    } else {
+      arr.push(0);
     }
+  }
+  return arr;
+}
 
-    over = true;
+  
+function exitToLogin() {
+  // Persist best accuracy, streak, and per-round accuracies for this post-test session
+  const acc = getAccuracyPercent();
+  const roundAccs = getAllRoundAccuraciesPercent();
+
+  if (acc > (window.bestAccuracy || 0)) {
+    window.bestAccuracy = acc;
+    rtGamePersistPostAccuracyIfPossible(window.bestAccuracy);
+  }
+
+  if (bestStreak > (window.bestStreak || 0)) {
+    window.bestStreak = bestStreak;
+    rtGamePersistPostBestStreakIfPossible(window.bestStreak);
+  }
+
+  rtGamePersistPostRoundAccuraciesIfPossible(roundAccs);
+
+  over = true;
     paused = false;
     betweenRounds = false;
     experimentDone = true;
@@ -592,34 +625,42 @@ function startGame(playerImg, alienImg) {
     {s:80,w:['topLeft','bottomRight','bottomLeft','topRight']}
   ];
 
-  let bullets,enemy,lvl,score,waiting,over,inTransition,
+let bullets,enemy,lvl,score,waiting,over,inTransition,
       expectedQuarter,withinPhase,phaseShot,streak=0,
       explosions=[],effects=[];
-  let bestStreak = window.bestStreak || 0;
+let bestStreak = window.bestStreak || 0;
+
+// per-round tallies: 4 rounds × 50 trials
+let roundCorrect = [0,0,0,0];
+let roundTotal   = [0,0,0,0];
 
   const overlay=document.getElementById('overlay'),
         transition=document.getElementById('transition');
 
-  function initState(){
-    ship=new Ship();
-    bullets=[];
-    enemy=null;
-    score=0;
-    lvl=TEST_LEVEL_INDEX;
-    waiting=false;
-    over=false;
-    inTransition=false;
-    streak=0;
-    explosions=[];
-    effects=[];
-    roundIndex = 0;
-    trialInRound = 0;
-    totalTrials = 0;
-    correctPrefires = 0;
-    betweenRounds = false;
-    experimentDone = false;
-    currentTrial = null;
-  }
+function initState(){
+  ship=new Ship();
+  bullets=[];
+  enemy=null;
+  score=0;
+  lvl=TEST_LEVEL_INDEX;
+  waiting=false;
+  over=false;
+  inTransition=false;
+  streak=0;
+  explosions=[];
+  effects=[];
+  roundIndex = 0;
+  trialInRound = 0;
+  totalTrials = 0;
+  correctPrefires = 0;
+  betweenRounds = false;
+  experimentDone = false;
+  currentTrial = null;
+
+  // reset per-round tallies
+  roundCorrect = [0,0,0,0];
+  roundTotal   = [0,0,0,0];
+}
 
   function openRoundMenu(isFinal=false) {
     if (!roundMenu) return;
@@ -644,50 +685,65 @@ function startGame(playerImg, alienImg) {
     roundMenu.style.display = 'flex';
   }
 
-  function finishTrialAndMaybeContinue() {
-    if (!currentTrial) currentTrial = {};
-    if (!currentTrial.resolved) {
-      currentTrial.resolved = true;
-      totalTrials++;
-      trialInRound++;
-      if (currentTrial.hit) correctPrefires++;
-    }
+function finishTrialAndMaybeContinue() {
+  if (!currentTrial) currentTrial = {};
+  if (!currentTrial.resolved) {
+    currentTrial.resolved = true;
+    totalTrials++;
+    trialInRound++;
 
-    waiting = false;
-    enemy = null;
-
-    if (totalTrials >= TOTAL_TRIALS) {
-      experimentDone = true;
-      betweenRounds = true;
-      openRoundMenu(true);
-
-      // Persist best accuracy & streak as soon as the test completes
-      const acc = getAccuracyPercent();
-      if (acc > (window.bestAccuracy || 0)) {
-        window.bestAccuracy = acc;
-        rtGamePersistPostAccuracyIfPossible(window.bestAccuracy);
+    // Per-round tallies based on current roundIndex (0–3)
+    if (roundIndex >= 0 && roundIndex < 4) {
+      roundTotal[roundIndex] = (roundTotal[roundIndex] || 0) + 1;
+      if (currentTrial.hit) {
+        roundCorrect[roundIndex] = (roundCorrect[roundIndex] || 0) + 1;
       }
-      if (bestStreak > (window.bestStreak || 0)) {
-        window.bestStreak = bestStreak;
-        rtGamePersistPostBestStreakIfPossible(window.bestStreak);
-      }
-
-      console.log('Post-test complete:', {
-        totalTrials,
-        correctPrefires,
-        accuracy: getAccuracyPercent()
-      });
-      return;
     }
 
-    if (trialInRound >= TRIALS_PER_ROUND) {
-      betweenRounds = true;
-      openRoundMenu(false);
-      return;
+    if (currentTrial.hit) {
+      correctPrefires++;
     }
-
-    scheduleWave();
   }
+
+  waiting = false;
+  enemy = null;
+
+  if (totalTrials >= TOTAL_TRIALS) {
+    experimentDone = true;
+    betweenRounds = true;
+    openRoundMenu(true);
+
+    // Persist best accuracy & streak as soon as the test completes
+    const acc = getAccuracyPercent();
+    const roundAccs = getAllRoundAccuraciesPercent();
+
+    if (acc > (window.bestAccuracy || 0)) {
+      window.bestAccuracy = acc;
+      rtGamePersistPostAccuracyIfPossible(window.bestAccuracy);
+    }
+    if (bestStreak > (window.bestStreak || 0)) {
+      window.bestStreak = bestStreak;
+      rtGamePersistPostBestStreakIfPossible(window.bestStreak);
+    }
+    rtGamePersistPostRoundAccuraciesIfPossible(roundAccs);
+
+    console.log('Post-test complete:', {
+      totalTrials,
+      correctPrefires,
+      accuracy: acc,
+      roundAccuracies: roundAccs
+    });
+    return;
+  }
+
+  if (trialInRound >= TRIALS_PER_ROUND) {
+    betweenRounds = true;
+    openRoundMenu(false);
+    return;
+  }
+
+  scheduleWave();
+}
 
   if (btnRoundContinue) {
     btnRoundContinue.addEventListener('click', () => {
