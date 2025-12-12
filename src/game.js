@@ -360,17 +360,6 @@ function startGame(playerImg, alienImg) {
     src.start();
   }
 
-  function playLaser() {
-    const now = audioCtx.currentTime;
-    const size = audioCtx.sampleRate * 0.1;
-    const buf = audioCtx.createBuffer(1, size, audioCtx.sampleRate), data = buf.getChannelData(0);
-    for (let i = 0; i < size; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
-    const src = audioCtx.createBufferSource(), g = audioCtx.createGain();
-    g.gain.setValueAtTime(1, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-    src.buffer = buf; src.connect(g).connect(audioCtx.destination); src.start(now);
-  }
-
   function playPew() {
     const now = audioCtx.currentTime;
     const size = audioCtx.sampleRate * 0.3;
@@ -451,58 +440,47 @@ function startGame(playerImg, alienImg) {
   }
 
   // ── Timers to fully stop activity ──────────────────────────────────
-  let prefireTimer = null;
-  let spawnTimer   = null;
-  let cloudTimerId = null;
+  let prefireTimer      = null;  // delay before tones start
+  let trialTimeoutTimer = null;  // 6 s response window
+  let cloudTimerId      = null;
   let afterCloudTimerId = null;
 
   function clearAllTimers() {
-    if (prefireTimer) { clearTimeout(prefireTimer); prefireTimer = null; }
-    if (spawnTimer)   { clearTimeout(spawnTimer);   spawnTimer = null; }
-    if (cloudTimerId) { clearTimeout(cloudTimerId); cloudTimerId = null; }
-    if (afterCloudTimerId) { clearTimeout(afterCloudTimerId); afterCloudTimerId = null; }
+    if (prefireTimer) {
+      clearTimeout(prefireTimer);
+      prefireTimer = null;
+    }
+    if (trialTimeoutTimer) {
+      clearTimeout(trialTimeoutTimer);
+      trialTimeoutTimer = null;
+    }
+    if (cloudTimerId) {
+      clearTimeout(cloudTimerId);
+      cloudTimerId = null;
+    }
+    if (afterCloudTimerId) {
+      clearTimeout(afterCloudTimerId);
+      afterCloudTimerId = null;
+    }
   }
 
-  // ── Pause helpers ──────────────────────────────────────────────────
   function togglePause() {
     if (experimentDone || betweenRounds) return;
-
-    if (!paused) {
-      pausedSnapshot.withinPhase = (withinPhase && !enemy);
-      pausedSnapshot.quarter     = expectedQuarter;
-      pausedSnapshot.hadWaiting  = (waiting && !enemy);
-    }
 
     paused = !paused;
 
     if (paused) {
       clearAllTimers();
       stopToneSequence();
-      audioCtx.suspend().catch(()=>{});
+      audioCtx.suspend().catch(() => {});
       if (pauseMenu) pauseMenu.style.display = 'flex';
     } else {
       if (pauseMenu) pauseMenu.style.display = 'none';
-      audioCtx.resume().catch(()=>{});
-
-      if (pausedSnapshot.withinPhase && !enemy) {
-        withinPhase = true;
-        waiting = true;
-        startToneSequence(pausedSnapshot.quarter);
-
-        if (spawnTimer) { clearTimeout(spawnTimer); }
-        spawnTimer = setTimeout(()=>{
-          if (experimentDone || paused) return;
-          if (!phaseShot) streak = 0;
-          const spawnCell = groupOffsets[pausedSnapshot.quarter];
-          enemy = new Enemy(spawnCell, levels[TEST_LEVEL_INDEX].s);
-          waiting = false;
-          withinPhase = false;
-        }, 4000);
-        return;
+      audioCtx.resume().catch(() => {});
+      // Resume by starting a fresh trial if none is currently in flight
+      if (!waiting && !withinPhase) {
+        scheduleWave();
       }
-
-      if (waiting && !enemy) waiting = false;
-      scheduleWave();
     }
   }
 
@@ -805,57 +783,68 @@ function finishTrialAndMaybeContinue() {
   }
 
   function scheduleWave() {
-    if (over || waiting || enemy || inTransition || paused || betweenRounds || experimentDone) return;
+    if (over || waiting || inTransition || paused || betweenRounds || experimentDone) return;
     if (totalTrials >= TOTAL_TRIALS) return;
 
     stopToneSequence();
+    clearAllTimers(); // ensure no timers from previous trial are hanging around
 
     waiting = true;
     withinPhase = false;
     phaseShot = false;
-    currentTrial = { resolved: false, hit: false };
+    currentTrial = { resolved: false, hit: false, responded: false };
 
-  // choose quarter with safety: cannot use same quarter > 3 times in a row
-  let candidate;
-  if (lastQuarter === null || sameQuarterCount < 3) {
-    // free choice
-    candidate = Math.floor(Math.random() * 4);
-  } else {
-    // lastQuarter has already been used 3 times in a row → force a different quarter
-    const choices = [0, 1, 2, 3].filter(q => q !== lastQuarter);
-    candidate = choices[Math.floor(Math.random() * choices.length)];
-  }
+    // choose quarter with safety: cannot use same quarter > 3 times in a row
+    let candidate;
+    if (lastQuarter === null || sameQuarterCount < 3) {
+      candidate = Math.floor(Math.random() * 4);
+    } else {
+      const choices = [0, 1, 2, 3].filter(q => q !== lastQuarter);
+      candidate = choices[Math.floor(Math.random() * choices.length)];
+    }
 
-  expectedQuarter = candidate;
+    expectedQuarter = candidate;
 
-  // update run-length tracking
-  if (lastQuarter === expectedQuarter) {
-    sameQuarterCount++;
-  } else {
-    lastQuarter = expectedQuarter;
-    sameQuarterCount = 1;
-  }
+    // update run-length tracking
+    if (lastQuarter === expectedQuarter) {
+      sameQuarterCount++;
+    } else {
+      lastQuarter = expectedQuarter;
+      sameQuarterCount = 1;
+    }
 
-  const spawnCell = groupOffsets[expectedQuarter];
-
+    // static "pre-cue" noise, like before
     playStatic(2);
-    prefireTimer = setTimeout(async ()=>{
+
+    // After static, start the tone sequence and open a 6 s response window
+    prefireTimer = setTimeout(async () => {
       if (inTransition || over || paused || betweenRounds || experimentDone) return;
       await waitForPianoReady();
-      withinPhase = true;
 
+      withinPhase = true;      // pre-fire window is now open
       startToneSequence(expectedQuarter);
 
-      spawnTimer = setTimeout(()=>{
-        if (over || paused || betweenRounds || experimentDone) return;
-        if (!phaseShot) {
-          streak = 0;            // miss → break streak
-          currentTrial.hit = false;
-        }
-        enemy = new Enemy(spawnCell, levels[TEST_LEVEL_INDEX].s);
-        waiting = false;
+      // 6-second response window from tone onset
+      trialTimeoutTimer = setTimeout(() => {
+        if (over || experimentDone) return;
+        if (currentTrial.resolved) return; // already handled (player fired)
+
         withinPhase = false;
-      }, 4000);
+        stopToneSequence();
+        streak = 0;
+        currentTrial.hit = false; // miss (no response)
+
+        // Tone cloud feedback, then advance to next sequence
+        cloudTimerId = setTimeout(() => {
+          playToneCloud(toneCloudDuration);
+        }, 1000);
+
+        afterCloudTimerId = setTimeout(() => {
+          if (!over && !experimentDone) {
+            finishTrialAndMaybeContinue();
+          }
+        }, (1 + toneCloudDuration + 1) * 1000);
+      }, 6000);
     }, 2000);
   }
 
@@ -889,47 +878,6 @@ function finishTrialAndMaybeContinue() {
     // White screen, no visual stimuli
     ctx.fillStyle = 'white';
     ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    // Update entities without drawing
-    bullets?.forEach(b=>{b.update();});
-    if (enemy) {
-      enemy.update();
-      // If enemy reaches the ship line → treat as a miss, end trial
-      if (enemy.hit()) {
-        enemy = null;
-        stopToneSequence();
-        clearAllTimers();
-        finishTrialAndMaybeContinue();
-        requestAnimationFrame(loop);
-        return;
-      }
-    }
-
-    bullets = (bullets || []).filter(b=>{
-      if (b.off()) return false;
-      if (enemy && Math.hypot(enemy.x - b.x, enemy.y - b.y) < enemy.r + b.r) {
-        // Kill: counted as a miss unless there was already a correct pre-fire.
-        const killPoints = getKillPointsForStreak(streak);
-        score += killPoints;
-
-        enemy = null;
-        stopToneSequence();
-        waiting = true;
-
-        cloudTimerId = setTimeout(() => playToneCloud(toneCloudDuration), 1000);
-        afterCloudTimerId = setTimeout(() => {
-          if (over || experimentDone) return;
-          finishTrialAndMaybeContinue();
-        }, 1000 + toneCloudDuration * 1000 + 1000);
-
-        return false;
-      }
-      return true;
-    });
-
-    if (!enemy && !waiting && !inTransition && !betweenRounds && !experimentDone) {
-      scheduleWave();
-    }
 
     requestAnimationFrame(loop);
   }
@@ -980,91 +928,58 @@ function finishTrialAndMaybeContinue() {
       return;
     }
 
-    // ── 1) PREDICTION PHASE (pre-fire) — quarter-based ───────────────
-    if (withinPhase && !enemy) {
+    // ── 1) PREDICTION PHASE (pre-fire) — single-shot, 6 s window ─────
+    if (withinPhase && !experimentDone) {
       const alienQuarter  = expectedQuarter;
       const playerQuarter = ship.group;
-      const groupedPhase  = prefireIsGroupedForQuarter(alienQuarter, TEST_LEVEL_INDEX);
 
-      // Wrong quarter on F → miss, break streak
-      if (k === 'f' && playerQuarter !== alienQuarter) {
-        streak = 0;
-        withinPhase = false;
-        currentTrial.hit = false;
-        return;
-      }
-
-      if (groupedPhase) {
-        // (For TEST_LEVEL_INDEX=7 this is false; included for completeness)
-        if (k !== 'f' || playerQuarter !== alienQuarter) return;
-
-        score += 75;
-        streak++;
-        if (streak > bestStreak) {
-          bestStreak = streak;
-          window.bestStreak = bestStreak;
+      if (k === 'f') {
+        // Only allow one shot per trial
+        if (!currentTrial || currentTrial.resolved || currentTrial.responded) {
+          return;
         }
-        phaseShot = true;
-        currentTrial.hit = true;
-        stopToneSequence();
-        clearTimeout(spawnTimer);
-        playPew();
-        const spawnCell = groupOffsets[alienQuarter];
-        effects.push({ type: 'precogScreenFlash', cell: spawnCell, startTime: Date.now(), duration: 600 });
-        waiting = true; withinPhase = false;
 
-        cloudTimerId = setTimeout(() => playToneCloud(toneCloudDuration), 1000);
+        currentTrial.responded = true;
+        withinPhase = false;
+
+        // Stop the ongoing sequence and 6 s timeout
+        stopToneSequence();
+        if (trialTimeoutTimer) {
+          clearTimeout(trialTimeoutTimer);
+          trialTimeoutTimer = null;
+        }
+
+        if (playerQuarter === alienQuarter) {
+          // Correct
+          currentTrial.hit = true;
+          score += 75;
+          streak++;
+          if (streak > bestStreak) {
+            bestStreak = streak;
+            window.bestStreak = bestStreak;
+          }
+        } else {
+          // Incorrect
+          currentTrial.hit = false;
+          streak = 0;
+        }
+
+        // Tone cloud feedback, then advance to next sequence
+        cloudTimerId = setTimeout(() => {
+          playToneCloud(toneCloudDuration);
+        }, 1000);
+
         afterCloudTimerId = setTimeout(() => {
           if (!over && !experimentDone) {
             finishTrialAndMaybeContinue();
           }
         }, (1 + toneCloudDuration + 1) * 1000);
+
         return;
       }
 
-      // Exact phases (TEST_LEVEL_INDEX=7): require correct quarter
-      if (k === 'f') {
-        if (playerQuarter === alienQuarter) {
-          score += 75;
-          streak++;
-          if (streak > bestStreak) {
-            bestStreak = bestStreak = streak;
-            window.bestStreak = bestStreak;
-          }
-          phaseShot = true;
-          currentTrial.hit = true;
-          stopToneSequence();
-          clearTimeout(spawnTimer);
-          playPew();
-          const spawnCell = groupOffsets[alienQuarter];
-          effects.push({ type: 'precogScreenFlash', cell: spawnCell, startTime: Date.now(), duration: 600 });
-          waiting = true; withinPhase = false;
-
-          cloudTimerId = setTimeout(() => playToneCloud(toneCloudDuration), 1000);
-          afterCloudTimerId = setTimeout(() => {
-            if (!over && !experimentDone) {
-              finishTrialAndMaybeContinue();
-            }
-          }, (1 + toneCloudDuration + 1) * 1000);
-        } else {
-          streak = 0;
-          withinPhase = false;
-          currentTrial.hit = false;
-        }
-        return;
-      }
+      // Ignore all other keys during pre-fire
       return;
-    }
-
-    // ── 2) REGULAR SHOOTING — ALWAYS TRIPLE SHOT (counts as miss) ────
-    if (k === 'f') {
-      const base = groupOffsets[ship.group];
-      [-1, 0, 1].forEach(off => {
-        const c = base + off;
-        playLaser();
-        bullets = bullets || [];
-        bullets.push(new Bullet((c + 0.5) * cellWidth, ship.y - ship.h / 2));
-      });
     }
   };
 
